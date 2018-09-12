@@ -1,0 +1,108 @@
+import gym
+
+from gym import spaces
+import math
+import random
+import sys
+import numpy as np
+
+
+# table height = width = from 0.0 to 1.0
+# robot has 4 actions: turn left, right, go forward, backward
+
+GOAL = np.array([0.5, 0.5, math.pi * 0.25])
+TOLERANCE = np.array([0.05, 0.05, 0.3])
+
+class Table(gym.Env):
+    def __init__(self):
+
+        self.action_space = spaces.Discrete(3)  # 3 actions : turn left, right, go forward
+        self.observation_space = spaces.Box(
+            np.array([0.0, 0.0, -math.pi], dtype=np.float32),
+            np.array([1.0, 1.0, math.pi], dtype=np.float32)
+        )
+
+        self.gui = None
+
+        self._timestep = 0
+        self.reset()
+
+    def reset(self):
+        """ Reset the environment and return the initial state number
+        """
+        #self._x = random.random()
+        #self._y = random.random()
+        #self._angle = random.uniform(-math.pi, math.pi)
+
+        self._x = 0.1
+        self._y = 0.1
+        self._angle = 0.1
+
+        self._timestep = 0
+        #self.display()
+
+        return self.current_state()
+
+    def render(self):
+        import gym_envs.table_gui
+
+        if self.gui is None:
+            self.gui = gym_envs.table_gui.TableGUI(GOAL[0], GOAL[1], GOAL[2])
+
+        self.gui.display(self._x, self._y, self._angle)
+
+    def step(self, action):
+        """ Perform an action in the environment. Actions are as follows:
+
+            - 0: turn left
+            - 1: turn right
+            - 2: go forward
+            - 3: go backward
+        """
+        assert(action >= 0)
+        assert(action <= 2)
+
+        self._timestep += 1
+
+        # If cell resulting from action= '-' or '|'--> wall, then agent does not move
+        original_x = self._x
+        original_y = self._y
+
+        if action == 0 :
+            # turn left
+            self._angle = (self._angle + 0.1) % (2 * math.pi)
+        elif action == 1 :
+            # turn right
+            self._angle = (self._angle - 0.1) % (2 * math.pi)
+        elif action == 2 :
+            # go forward
+            self._x += math.cos(self._angle) * 0.005
+            self._y += math.sin(self._angle) * 0.005
+
+        reward = 0.0
+        terminal = False
+
+        # if robot falls off table:
+        if not (0.0 < self._x < 1.0 and 0.0 < self._y < 1.0):
+            self._x = original_x
+            self._y = original_y
+            reward = -50
+            terminal = True
+            print("Fell off the table!")
+
+        # Check goal
+        state = self.current_state()
+
+        if (np.abs(state - GOAL) < TOLERANCE).all():
+            reward = 100
+            terminal = True
+            print("Goal reached!")
+
+
+        # Return the current state, a reward and whether the episode terminates
+        return state, reward, terminal or (self._timestep > 2000), {}
+
+    def current_state(self):
+        return np.array([self._x, self._y, self._angle], dtype=np.float32)
+
+
