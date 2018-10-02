@@ -21,6 +21,12 @@ then
     ENVN=Table-v0
     LEN=2000
     HIDDEN=32
+elif [ "$1" = "tablernd" ]
+then
+    ENV=tablernd
+    ENVN=TableRandom-v0
+    LEN=4000
+    HIDDEN=32
 else
     echo "No environment given, give largegrid, frozenlake or table"
     exit 1

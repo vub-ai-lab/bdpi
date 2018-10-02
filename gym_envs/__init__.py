@@ -27,5 +27,11 @@ register(
 register(
     id='Table-v0',
     entry_point='gym_envs.table:Table',
-    kwargs={}
+    kwargs={'rnd': False}
+)
+
+register(
+    id='TableRandom-v0',
+    entry_point='gym_envs.table:Table',
+    kwargs={'rnd': True}
 )

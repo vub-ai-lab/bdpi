@@ -32,7 +32,7 @@ GOAL = np.array([0.5, 0.5, math.pi * 0.25])
 TOLERANCE = np.array([0.05, 0.05, 0.3])
 
 class Table(gym.Env):
-    def __init__(self):
+    def __init__(self, rnd):
 
         self.action_space = spaces.Discrete(3)  # 3 actions : turn left, right, go forward
         self.observation_space = spaces.Box(
@@ -41,6 +41,7 @@ class Table(gym.Env):
         )
 
         self.gui = None
+        self.rnd = rnd
 
         self._timestep = 0
         self.reset()
@@ -48,13 +49,14 @@ class Table(gym.Env):
     def reset(self):
         """ Reset the environment and return the initial state number
         """
-        #self._x = random.random()
-        #self._y = random.random()
-        #self._angle = random.uniform(-math.pi, math.pi)
-
-        self._x = 0.1
-        self._y = 0.1
-        self._angle = 0.1
+        if self.rnd:
+            self._x = random.random()
+            self._y = random.random()
+            self._angle = random.uniform(-math.pi, math.pi)
+        else:
+            self._x = 0.1
+            self._y = 0.1
+            self._angle = 0.1
 
         self._timestep = 0
         #self.display()

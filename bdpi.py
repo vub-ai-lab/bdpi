@@ -410,7 +410,7 @@ class BDPI(object):
         probas /= probas.sum()
 
         # Choose a model depending on a probability distribution
-        action_index = np.random.multinomial(1, probas).argmax()
+        action_index = int(np.random.choice(range(self.num_actions), p=probas))
         entropy = -np.sum(probas * np.log2(probas))
 
         # Store the experience
