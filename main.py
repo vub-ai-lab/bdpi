@@ -201,6 +201,7 @@ class Learner(object):
                 print('Learned %i steps in %.3f seconds, %.2f timesteps per second' % (count, d, count / d))
                 print('S', count / d, file=sys.stderr)
                 sys.stderr.flush()
+                sys.stdout.flush()
                 self._datetime = ns
 
         return (env_state, cumulative_reward, seen_reward, done, i)
