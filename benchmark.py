@@ -25,8 +25,7 @@ import psutil
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['LANG'] = 'C'
 
-#ENVS = ['table', 'frozenlake', 'largegrid']
-ENVS = ['frozenlake', 'largegrid']
+ENVS = ['table', 'frozenlake', 'largegrid']
 
 def log(s):
     print('\033[32m' + s + '\033[0m')
@@ -126,7 +125,7 @@ def main():
     log('Preparing commands...')
 
     for e in ENVS:
-        #os.system('bash experiments_gym.sh ' + e)
+        os.system('bash experiments_gym.sh ' + e)
 
         # Get the benchmark command
         with open('commands_' + e + '.sh', 'r') as f:
