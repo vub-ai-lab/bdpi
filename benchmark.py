@@ -88,7 +88,7 @@ def run_env(command, cores, num_cpus, name):
         # Summary of the statistics
         rs.append((s, insns))
 
-        print('%i/512 %f t/s' % (batch_size, s), end='\r')
+        print('%i/512 %f t/s, ipc %f' % (batch_size, s, insns), end='\r')
         sys.stdout.flush()
 
         # Write the statistics
@@ -133,8 +133,8 @@ def main():
                 if 'rp-16critics-er512-epochs20x16-qloops4-1' in line:
                     # Remove the "2> log*"
                     parts = line.split()[:-2]
-
                     commands.append(' '.join(parts))
+                    break
     # All tests
     for c, e in zip(commands, ENVS):
         for threads in [1] + list(range(4, num_cpus+1, 4)):
