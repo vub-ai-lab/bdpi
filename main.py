@@ -43,9 +43,15 @@ class Learner(object):
         self._learn_freq = args.erfreq
         self._offpolicy_noise = args.offpolicy_noise
         self._temp = float(args.temp)
+        self._retro = args.retro
 
         # Make environment
-        self._env = gym.make(args.env)
+        if args.retro:
+            import retro
+
+            self._env = retro.make(game=args.env)
+        else:
+            self._env = gym.make(args.env)
 
         # Observations
         self._discrete_obs = isinstance(self._env.observation_space, gym.spaces.Discrete)
@@ -65,9 +71,14 @@ class Learner(object):
 
         if isinstance(aspace[0], gym.spaces.Discrete):
             # Discrete actions
-            self._num_actions = np.prod([a.n for a in aspace])
+            self._num_actions = int(np.prod([a.n for a in aspace]))
+        elif isinstance(aspace[0], gym.spaces.MultiBinary):
+            # Retro actions are binary vectors of pressed buttons. Quick HACK,
+            # only press one button at a time
+            self._num_actions = int(np.prod([a.n for a in aspace]))
         else:
             # Continuous actions
+            print(aspace)
             raise NotImplementedError('Continuous actions are not supported')
 
         self._aspace = aspace
@@ -170,6 +181,12 @@ class Learner(object):
                 env_state, reward, done, __ = self._env.step(actions)
             else:
                 # Simple scalar action
+                if self._retro:
+                    # Binary action
+                    a = np.zeros((self._num_actions,), dtype=np.int8)
+                    a[action] = 1
+                    action = a
+
                 env_state, reward, done, __ = self._env.step(action)
 
             i += 1
@@ -213,6 +230,7 @@ def main():
     parser.add_argument("--render", type=int, default=0, help="Enable a graphical rendering of the environment after N episodes")
     parser.add_argument("--monitor", action="store_true", default=False, help="Enable Gym monitoring for this run")
     parser.add_argument("--env", required=True, type=str, help="Gym environment to use")
+    parser.add_argument("--retro", action='store_true', default=False, help="The environment is a OpenAI Retro environment (not a Gym one)")
     parser.add_argument("--episodes", type=int, default=5000, help="Number of episodes to run")
     parser.add_argument("--name", type=str, default='', help="Experiment name")
 
