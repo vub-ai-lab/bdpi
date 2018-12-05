@@ -91,11 +91,6 @@ class Learner:
         v_inp = variable(inp)
         v_target = variable(target)
 
-        # JIT the model if it is not yet jitted, and we know the final size of the input
-        if isinstance(model[0], torch.nn.Sequential) and inp.shape[0] == self.args.er:
-            print('JIT')
-            model[0] = torch.jit.trace(v_inp)(model[0])
-
         # Perform training
         def closure():
             model[1].zero_grad()
