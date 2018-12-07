@@ -25,7 +25,7 @@ import psutil
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['LANG'] = 'C'
 
-ENVS = ['table', 'frozenlake', 'largegrid']
+ENVS = ['table', 'frozenlake', 'largegrid', 'lunarlander']
 
 def log(s):
     print('\033[32m' + s + '\033[0m')
@@ -114,7 +114,7 @@ def run_env(command, cores, num_cpus, name):
 
 def main():
     if len(sys.argv) < 2:
-        print('Usage:', sys.argv[0], '<num_cpus>')
+        print('Usage:', sys.argv[0], '<num_cpus> [run_cpu]')
         return
 
     num_cpus = int(sys.argv[1])
@@ -130,19 +130,24 @@ def main():
         # Get the benchmark command
         with open('commands_' + e + '.sh', 'r') as f:
             for line in f:
-                if 'rp-16critics-er512-epochs20x16-qloops4-1' in line:
+                if 'rp-16critics' in line and 'epochs20x16-qloops4-1' in line:
                     # Remove the "2> log*"
                     parts = line.split()[:-2]
                     commands.append(' '.join(parts))
                     break
     # All tests
+    if len(sys.argv) >= 3:
+        all_cpus = [int(sys.argv[2])]
+    else:
+        all_cpus = [1] + list(range(4, num_cpus+1, 4))
+
     for c, e in zip(commands, ENVS):
-        for threads in [1] + list(range(4, num_cpus+1, 4)):
+        for threads in reversed(all_cpus):
             log('Benchmark x%i on %s...' % (threads, e))
 
             rs = run_env(c, threads, num_cpus, 'out-%s-%ix.csv' % (e, threads))
 
-            print('    %i (small), %i (large), %f instructions per cycle' % (rs[32][0], rs[-1][0], rs[-1][1]))
+            print('    %i (small), %i (large), %f instructions per cycle' % (rs[0][0], rs[-1][0], rs[-1][1]))
 
 if __name__ == '__main__':
     main()

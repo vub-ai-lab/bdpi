@@ -1,5 +1,5 @@
 #!/bin/bash
-RUNS="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16"
+RUNS="1 2 3 4 5 6 7 8"
 PYTHON="python3"
 MAIN_VARIANT="rp"
 
@@ -19,14 +19,20 @@ elif [ "$1" = "table" ]
 then
     ENV=table
     ENVN=Table-v0
-    LEN=2000
+    LEN=500
     HIDDEN=32
 elif [ "$1" = "tablernd" ]
 then
     ENV=tablernd
     ENVN=TableRandom-v0
     LEN=4000
-    HIDDEN=32
+    HIDDEN=128
+elif [ "$1" = "lunarlander" ]
+then
+    ENV=lunarlander
+    ENVN=LunarLander-v2
+    LEN=1000
+    HIDDEN=256
 else
     echo "No environment given, give largegrid, frozenlake or table"
     exit 1
@@ -52,11 +58,11 @@ then
         --epochs {epochs} \
         --erpoolsize 20000 "\"2>\"" "log-parallel-$ENV-{variant}-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
         ::: er 512 \
-        ::: loops 1 16 \
-        ::: ac 4 16 \
+        ::: loops 8 16 32 \
+        ::: ac 8 16 32 \
         ::: epochs 20 \
         ::: qloops 1 2 4 \
-        ::: variant rp ri generalized \
+        ::: variant rp \
         ::: run $RUNS
 fi
 
