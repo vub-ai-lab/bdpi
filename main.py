@@ -247,7 +247,7 @@ def main():
     parser.add_argument("--save", type=str, help="Basename of saved weight files. If not given, nothing is saved")
 
     parser.add_argument("--offpolicy-noise", action="store_true", default=False, help="Add some off-policy noise on the actions executed by the agent, using e-Greedy with --temp.")
-    parser.add_argument("--pursuit-variant", type=str, choices=['generalized', 'ri', 'rp', 'pg'], default='rp', help="Pursuit Learning algorithm used")
+    parser.add_argument("--pursuit-variant", type=str, choices=['generalized', 'ri', 'rp', 'mimic'], default='rp', help="Pursuit Learning algorithm used, mimic enables the Actor-Mimic")
     parser.add_argument("--learning-algo", type=str, choices=['egreedy', 'softmax', 'pursuit'], default='pursuit', help="Action selection method")
     parser.add_argument("--temp", type=str, default='0.1', help="Epsilon or temperature. Can be a value_factor format where value is multiplied by factor after every episode")
     parser.add_argument("--actor-count", type=int, default=1, help="Amount of 'actors' in the mixture of experts")

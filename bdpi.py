@@ -45,15 +45,11 @@ class Experience:
         self.next_experience = None
 
         # Compress state when storing an experience
-        s = state.tostring() # pickle.dumps(state)
+        s = state.tostring()
         self._state = lzo.compress(s)
 
     def state(self):
-        return Experience.unpack_state(self._state)
-
-    @staticmethod
-    def unpack_state(state_raw):
-        return np.fromstring(lzo.decompress(state_raw), dtype=np.float32)
+        return np.fromstring(lzo.decompress(self._state), dtype=np.float32)
 
 
 class Learner:
@@ -72,12 +68,13 @@ class Learner:
     def state_dict(self):
         """ Return the state_dict of the model
         """
-        return self._state_dict()
+        return self._models[0][0].state_dict()
 
     def load_state_dict(self, s):
         """ Set the state of the model
         """
-        self._load_state_dict(s)
+        for m in self._models:
+            m[0].load_state_dict(s)
 
     def _predict_model(self, model, inp):
         """ Return a Numpy prediction of a model
@@ -104,13 +101,6 @@ class Learner:
 
         return loss
 
-    def _state_dict(self):
-        return self._models[0][0].state_dict()
-
-    def _load_state_dict(self, s):
-        for m in self._models:
-            m[0].load_state_dict(s)
-
     def _setup(self):
         if self.is_critic:
             # Clipped DQN requires two models
@@ -130,7 +120,12 @@ class Learner:
         def make_model(layers):
             model = torch.nn.Sequential(*layers)
             optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
-            loss = torch.nn.MSELoss()
+
+            if self.args.pursuit_variant == 'mimic' and not self.is_critic:
+                # Use the Actor-Mimic loss
+                loss = CELoss()
+            else:
+                loss = torch.nn.MSELoss()
 
             return [model, optimizer, loss]
 
@@ -177,14 +172,21 @@ class Actor(Learner):
             train_probas[CN, max_indexes] = were_greedy
         elif variant == 'rp':
             train_probas[CN, max_indexes] = 1.0
+        elif variant == 'mimic':
+            # Train to imitate the Softmax policy of the critic
+            t = critic_qvalues * 10      # Low temperature
+            train_probas = t - np.max(t, axis=1, keepdims=True)
+            train_probas = np.exp(train_probas)
+            train_probas /= train_probas.sum(axis=1, keepdims=True)
 
-        # Normalize the direction to be pursued
-        actor_probas = self._predict_model(self._models[0], states)
+        if variant != 'mimic':
+            # Normalize the direction to be pursued
+            actor_probas = self._predict_model(self._models[0], states)
 
-        # Discuss gradient vs target, and say that https://www.sciencedirect.com/science/article/pii/S0016003205000645 uses
-        # a gradient-based approach with continuous actions (which sure works, it's policy gradient)
-        train_probas /= 1e-6 + train_probas.sum(1)[:, None]
-        train_probas = (1. - ALPHAA) * actor_probas + ALPHAA * train_probas
+            # Discuss gradient vs target, and say that https://www.sciencedirect.com/science/article/pii/S0016003205000645 uses
+            # a gradient-based approach with continuous actions (which sure works, it's policy gradient)
+            train_probas /= 1e-6 + train_probas.sum(1)[:, None]
+            train_probas = (1. - ALPHAA) * actor_probas + ALPHAA * train_probas
 
         # Fit the actor
         self._train_model(
@@ -198,11 +200,10 @@ class Critic(Learner):
     """ A critic learned with Aggressive Bootstrapped Clipped DQN
     """
     def train(self, experiences):
-        """ Train the critic from experiences. Call get_train_result() to obtain
-            the (states, actions, qvalues) tuple to use to train the actor.
+        """ Train the critic from experiences.
         """
-        # Prepare Numpy arrays from the experiences (pickle is very slow at pickling experiences)
-        states_raw = [e._state for e in experiences]
+        states_numpy = np.array([e.state() for e in experiences], dtype=np.float32)
+        states = variable(states_numpy)
         actions = np.array([e.action for e in experiences], dtype=np.int32)
         rewards = np.array([e.reward for e in experiences], dtype=np.float32)
 
@@ -210,29 +211,9 @@ class Critic(Learner):
         next_experiences = [e.next_experience for e in experiences]
         nes = [e for e in next_experiences if e is not None]
         next_indexes = np.array([i for i, e in enumerate(next_experiences) if e is not None], dtype=np.int32)
-        next_states_raw = [e._state for e in nes]
+        next_states = np.array([e.state() for e in nes])
 
-        data = (states_raw, actions, rewards, next_indexes, next_states_raw)
-        self._data = data
-
-    def get_train_result(self):
-        return self._train(self._data)
-
-    def predict(self, state):
-        """ Return the Q-Values corresponding to a state
-        """
-        return self._predict(state)
-
-    def _predict(self, state):
-        return self._predict_model(self._models[0], state)[0]
-
-    def _train(self, data):
-        # Unpack data
-        states_raw, actions, rewards, next_indexes, next_states_raw = data
-        states_numpy = np.array([Experience.unpack_state(s) for s in states_raw])
-        next_states = np.array([Experience.unpack_state(s) for s in next_states_raw])
-        states = variable(states_numpy)
-
+        # Perform training iterations
         for i in range(self.args.q_loops):
             # Q-Learning
             critic_qvalues = self._predict_model(self._models[0], states)       # Original Q-Values predicted by the newest Q-function
@@ -250,6 +231,11 @@ class Critic(Learner):
             self._models[0], self._models[1] = self._models[1], self._models[0]
 
         return (states_numpy, actions, critic_qvalues)
+
+    def predict(self, state):
+        """ Return the Q-Values corresponding to a state
+        """
+        return self._predict_model(self._models[0], state)[0]
 
     def _train_loop(self, states, actions, rewards, critic_qvalues, next_states, next_indexes):
         """ Perform one iteration of Clipped DQN on the critic.
@@ -367,8 +353,7 @@ class BDPI(object):
             return probas
 
     def train(self):
-        # Sample experiences from the experience pool, restricting on the ones
-        # that can be used with the current actor
+        # Sample experiences from the experience pool
         all_experiences = list(self._experiences)[:-1]
         count = min(len(all_experiences), self.args.er)
 
@@ -376,12 +361,11 @@ class BDPI(object):
             return 0
 
         # Train each critic, then use its greedy function to train the actor
-        critics = random.sample(self._critics, self.args.loops)
-
-        for critic in critics:
+        for i in range(self.args.loops):
+            critic = random.choice(self._critics)
             experiences = sample_wr(all_experiences, count)
-            critic.train(experiences)
-            states, actions, critic_qvalues = critic.get_train_result()
+
+            states, actions, critic_qvalues = critic.train(experiences)
 
             if self.use_actor:
                 self._actor.train(states, actions, critic_qvalues)
@@ -443,3 +427,10 @@ def variable(inp):
         rs = torch.from_numpy(np.asarray(inp))
 
     return rs
+
+
+class CELoss(torch.nn.Module):
+    """ Cross-Entropy loss with probabilities
+    """
+    def forward(self, x, target):
+        return -torch.sum(target * torch.log(x))
