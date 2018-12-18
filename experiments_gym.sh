@@ -62,7 +62,7 @@ then
         ::: ac 8 16 32 \
         ::: epochs 20 \
         ::: qloops 1 2 4 \
-        ::: variant rp \
+        ::: variant rp mimic \
         ::: run $RUNS
 fi
 

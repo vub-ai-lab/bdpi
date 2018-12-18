@@ -103,7 +103,7 @@ class Learner(object):
             rs = np.zeros(shape=(self._state_vars,), dtype=np.float32)
             rs[state] = 1.0
         elif isinstance(state, np.ndarray):
-            rs = state.flatten().astype(np.float32)
+            rs = state.ravel().astype(np.float32)
         else:
             rs = np.array(state, dtype=np.float32)
 

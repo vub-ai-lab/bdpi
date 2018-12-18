@@ -170,11 +170,11 @@ class Actor(Learner):
         elif variant == 'ri':
             were_greedy = (max_indexes == actions).astype(np.float32)
             train_probas[CN, max_indexes] = were_greedy
-        elif variant == 'rp':
+        elif variant == 'rp' or (variant == 'mimic' and self.args.temp == '0'):
             train_probas[CN, max_indexes] = 1.0
         elif variant == 'mimic':
             # Train to imitate the Softmax policy of the critic
-            t = critic_qvalues * 10      # Low temperature
+            t = critic_qvalues / float(self.args.temp)
             train_probas = t - np.max(t, axis=1, keepdims=True)
             train_probas = np.exp(train_probas)
             train_probas /= train_probas.sum(axis=1, keepdims=True)
