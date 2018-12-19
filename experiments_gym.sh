@@ -50,6 +50,7 @@ then
         --episodes $LEN \
         --hidden $HIDDEN \
         --lr 0.0001 \
+        --temp 0.0 \
         --er {er} \
         --erfreq 1 \
         --loops {loops} \
