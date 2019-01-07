@@ -35,7 +35,7 @@ Explaining BDPI can be done by following the loop:
 
 Because the actor has a learning rate, it learns the **expected greedy policy** of the critics, that, being trained off-policy, learn the **optimal Q-Function**. And because the greedy policy of the optimal Q-Function is the optimal policy, the **actor learns the optimal policy**. The way the actor moves towards that optimal policy closely resembles Thompson sampling, empirically shown to be an extremely good exploration strategy. This may explain why our results look so "BDPI learns immediately while the other algorithms are flat lines", BDPI almost perfectly balances exploration and exploitation, even though it does not have any advanced feature like novelty-based exploration, reward shaping, or reward rewriting.
 
-## Where are the Atari games
+## Where are the Atari games?
 
 In the paper, we discuss why we did not perform any experiment on the Atari games. The general idea is that Atari games can be learned with DQN (and its more recent variants, such as Rainbow). All these variants share common traits, such as using a small batch size (32 experiences), training the Q-network for only a single epoch per time-step, or using a target network. All these traits are mandatory. When we change the batch size (in any direction!), DQN fails to learn any game. If more than one training epoch is performed, DQN breaks. If the target network is removed, DQN breaks. Even more importantly, if we sample two batches of experiences per time-step (instead of 1), and apply DQN to each of these batches in an attempt to double its sample-efficiency, DQN breaks.
 
