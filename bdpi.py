@@ -29,7 +29,7 @@ import pickle
 import lzo
 
 ALPHA = 0.2
-ALPHAA = 0.001
+ALPHAA = 0.05 # 0.001
 GAMMA = 0.99
 
 class Experience:

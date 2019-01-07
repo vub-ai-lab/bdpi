@@ -50,7 +50,7 @@ then
         --episodes $LEN \
         --hidden $HIDDEN \
         --lr 0.0001 \
-        --temp 0.0 \
+        --temp 0 \
         --er {er} \
         --erfreq 1 \
         --loops {loops} \
@@ -58,7 +58,7 @@ then
         --q-loops {qloops} \
         --epochs {epochs} \
         --erpoolsize 20000 "\"2>\"" "log-parallel-$ENV-{variant}-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
-        ::: er 512 \
+        ::: er 256 \
         ::: loops 8 16 32 \
         ::: ac 8 16 32 \
         ::: epochs 20 \
@@ -85,7 +85,7 @@ then
         --q-loops {qloops} \
         --epochs {epochs} \
         --erpoolsize 20000 "\"2>\"" "log-bootstrapped-$ENV-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
-        ::: er 512 \
+        ::: er 256 \
         ::: loops 1 16 \
         ::: ac 16 \
         ::: epochs 1 20 \

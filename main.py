@@ -28,6 +28,7 @@ import numpy as np
 import datetime
 
 import gym_envs
+import atariwrap
 from bdpi import BDPI
 
 class Learner(object):
