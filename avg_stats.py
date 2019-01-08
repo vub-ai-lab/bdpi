@@ -1,22 +1,4 @@
 #!/usr/bin/python3
-# This file is part of Bootstrapped Dual Policy Iteration
-# 
-# Copyright 2018, Vrije Universiteit Brussel (http://vub.ac.be)
-#     authored by Denis Steckelmacher <dsteckel@ai.vub.ac.be>
-#
-# BDPI is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# BDPI is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with BDPI.  If not, see <http://www.gnu.org/licenses/>.
-
 import sys
 import math
 
@@ -82,7 +64,7 @@ while True:
         mean = sum(elems) / N
         var = sum([(e - mean)**2 for e in elems if e != 0.0])
         std = math.sqrt(var)
-        err = 1.96 * std / math.sqrt(N)     # 95% confidence interval, known standard deviation
+        err = std / N
 
         if running_mean is None:
             running_mean = mean
