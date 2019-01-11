@@ -24,12 +24,19 @@ import random
 import argparse
 
 import gym
+import gym.envs.atari.atari_env
 import numpy as np
 import datetime
 
 import gym_envs
 import atariwrap
 from bdpi import BDPI
+
+try:
+    # Import additional environments if available
+    import gym_miniworld
+except:
+    pass
 
 class Learner(object):
     def __init__(self, args):
@@ -54,13 +61,27 @@ class Learner(object):
         else:
             self._env = gym.make(args.env)
 
+        # Wrap Atari with the DeepMind cheats
+        if hasattr(self._env, 'unwrapped') and isinstance(self._env.unwrapped, gym.envs.atari.atari_env.AtariEnv):
+            assert 'NoFrameskip' in self._env.spec.id
+
+            self._env = atariwrap.NoopResetEnv(self._env, noop_max=30)
+            self._env = atariwrap.MaxAndSkipEnv(self._env, skip=4)
+            self._env = atariwrap.wrap_deepmind(self._env)
+
         # Observations
         self._discrete_obs = isinstance(self._env.observation_space, gym.spaces.Discrete)
 
         if self._discrete_obs:
-            self._state_vars = self._env.observation_space.n                    # Prepare for one-hot encoding
+            self._state_shape = (self._env.observation_space.n,)                # Prepare for one-hot encoding
         else:
-            self._state_vars = int(np.product(self._env.observation_space.shape))
+            self._state_shape = self._env.observation_space.shape
+
+            if len(self._state_shape) > 1:
+                # Fix 2D shape for PyTorch
+                s = self._state_shape
+
+                self._state_shape = (s[2], s[0], s[1])
 
         # Primitive actions
         aspace = self._env.action_space
@@ -85,11 +106,11 @@ class Learner(object):
         self._aspace = aspace
 
         # BDPI algorithm instance
-        self._bdpi = BDPI(self._state_vars, self._num_actions, args, None)
+        self._bdpi = BDPI(self._state_shape, self._num_actions, args, None)
 
         # Summary
         print('Number of primitive actions:', self._num_actions)
-        print('Number of state variables', self._state_vars)
+        print('State shape', self._state_shape)
 
     def loadstore(self, filename, load=True):
         """ Load or store weights from/to a file
@@ -101,12 +122,13 @@ class Learner(object):
         """
         if self._discrete_obs:
             # One-hot encode discrete variables
-            rs = np.zeros(shape=(self._state_vars,), dtype=np.float32)
+            rs = np.zeros(shape=self._state_shape, dtype=np.float32)
             rs[state] = 1.0
-        elif isinstance(state, np.ndarray):
-            rs = state.ravel().astype(np.float32)
+        elif len(self._state_shape) > 1:
+            # Atari, retro and other image-based are NHWC, PyTorch is NCHW
+            rs = np.float32(np.swapaxes(state, 2, 0))
         else:
-            rs = np.array(state, dtype=np.float32)
+            rs = np.asarray(state, dtype=np.float32)
 
         return rs
 

@@ -35,7 +35,7 @@ GAMMA = 0.99
 class Experience:
     """ States, actions, rewards experienced by an agent
     """
-    __slots__ = 'action', 'entropy', 'reward', 'next_experience', '_state'
+    __slots__ = 'action', 'entropy', 'reward', 'next_experience', '_state', '_shape'
 
     def __init__(self, state, action, entropy):
         self.action = action
@@ -47,9 +47,10 @@ class Experience:
         # Compress state when storing an experience
         s = state.tostring()
         self._state = lzo.compress(s)
+        self._shape = state.shape
 
     def state(self):
-        return np.fromstring(lzo.decompress(self._state), dtype=np.float32)
+        return np.fromstring(lzo.decompress(self._state), dtype=np.float32).reshape(self._shape)
 
 
 class Learner:
@@ -57,8 +58,8 @@ class Learner:
         run in a separate process
     """
 
-    def __init__(self, state_vars, num_actions, args, is_critic):
-        self.state_vars = state_vars
+    def __init__(self, state_shape, num_actions, args, is_critic):
+        self.state_shape = state_shape
         self.num_actions = num_actions
         self.args = args
         self.is_critic = is_critic
@@ -112,7 +113,32 @@ class Learner:
     def _make_model(self):
         """ Create all the required network for a sub-option
         """
-        def make_hidden(layers, inp_size):
+        def make_hidden(layers, inp_shape):
+            if len(inp_shape) > 1:
+                # 2D image, add convolutions
+                sizes = [8, 4, 3]
+                strides = [4, 2, 1]
+                filters = [32, 64, 32]
+                in_channels = inp_shape[0]
+
+                for i in range(len(sizes)):
+                    layers.append(torch.nn.Conv2d(
+                        in_channels,
+                        filters[i],
+                        sizes[i],
+                        stride=strides[i],
+                        bias=True
+                    ))
+                    layers.append(torch.nn.ReLU())
+
+                    in_channels = filters[i]
+
+                layers.append(Flatten())
+
+                inp_size = torch.nn.Sequential(*layers)(variable(np.zeros((1,) + inp_shape, dtype=np.float32))).shape[1]
+            else:
+                inp_size = inp_shape[0]
+
             for i in range(self.args.layers):
                 layers.append(torch.nn.Linear(inp_size if i == 0 else self.args.hidden, self.args.hidden))
                 layers.append(torch.nn.Tanh())
@@ -131,7 +157,7 @@ class Learner:
 
         layers = []
 
-        make_hidden(layers, self.state_vars)
+        make_hidden(layers, self.state_shape)
         layers.append(torch.nn.Linear(self.args.hidden, self.num_actions))
 
         if not self.is_critic:
@@ -143,8 +169,8 @@ class Actor(Learner):
     """ The actor learns using Conservative Policy Iteration from Q-Values provided
         to it. The actor is not a separate process
     """
-    def __init__(self, state_vars, num_actions, args):
-        super(Actor, self).__init__(state_vars, num_actions, args, False)
+    def __init__(self, state_shape, num_actions, args):
+        super(Actor, self).__init__(state_shape, num_actions, args, False)
 
     def predict(self, state):
         """ Return a probability distribution over actions
@@ -271,10 +297,10 @@ class Critic(Learner):
 class BDPI(object):
     """ The Bootstrapped Dual Policy Iteration algorithm.
     """
-    def __init__(self, state_vars, num_actions, args, policy=None):
+    def __init__(self, state_shape, num_actions, args, policy=None):
         """ Constructor.
 
-            - state_vars: integer, number of state variables
+            - state_shape: tuple, shape of the observations
             - num_actions: integer, number of actions available
             - args: Arguments from the command line, contains information about
                     learning rates, network shapes, etc.
@@ -299,12 +325,12 @@ class BDPI(object):
         self._actor_index = 0
 
         # Create actor and critic networks
-        self._actor = Actor(state_vars, num_actions, self.args)
+        self._actor = Actor(state_shape, num_actions, self.args)
         self._critics = []
 
         for i in range(self.args.actor_count):
             self._critics.append(Critic(
-                state_vars,
+                state_shape,
                 num_actions,
                 self.args,
                 True                        # is_critic
@@ -434,3 +460,9 @@ class CELoss(torch.nn.Module):
     """
     def forward(self, x, target):
         return -torch.sum(target * torch.log(x))
+
+class Flatten(torch.nn.Module):
+    """ Flatten an input, used to map a convolution to a Dense layer
+    """
+    def forward(self, x):
+        return x.view(x.size()[0], -1)
