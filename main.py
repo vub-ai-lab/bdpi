@@ -110,7 +110,7 @@ class Learner(object):
 
         # Summary
         print('Number of primitive actions:', self._num_actions)
-        print('State shape', self._state_shape)
+        print('State shape:', self._state_shape)
 
     def loadstore(self, filename, load=True):
         """ Load or store weights from/to a file

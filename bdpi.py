@@ -135,7 +135,7 @@ class Learner:
 
                 layers.append(Flatten())
 
-                inp_size = torch.nn.Sequential(*layers)(variable(np.zeros((1,) + inp_shape, dtype=np.float32))).shape[1]
+                inp_size = torch.nn.Sequential(*layers)(torch.zeros((1,) + inp_shape)).shape[1]
             else:
                 inp_size = inp_shape[0]
 
@@ -145,6 +145,10 @@ class Learner:
 
         def make_model(layers):
             model = torch.nn.Sequential(*layers)
+
+            if torch.cuda.is_available():
+                model = model.cuda()
+
             optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
 
             if self.args.pursuit_variant == 'mimic' and not self.is_critic:
@@ -451,6 +455,9 @@ def variable(inp):
         rs = inp
     else:
         rs = torch.from_numpy(np.asarray(inp))
+
+    if torch.cuda.is_available():
+        rs = rs.cuda()
 
     return rs
 
