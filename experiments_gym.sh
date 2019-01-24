@@ -9,30 +9,35 @@ then
     ENVN=LargeGrid-v0
     LEN=2000
     HIDDEN=32
+    NOISE=0.2
 elif [ "$1" = "frozenlake" ]
 then
     ENV=frozenlake
     ENVN=FrozenLake8x8-v0
     LEN=2000
     HIDDEN=32
+    NOISE=0.2
 elif [ "$1" = "table" ]
 then
     ENV=table
     ENVN=Table-v0
     LEN=500
     HIDDEN=32
+    NOISE=0.05
 elif [ "$1" = "tablernd" ]
 then
     ENV=tablernd
     ENVN=TableRandom-v0
     LEN=4000
     HIDDEN=128
+    NOISE=0.05
 elif [ "$1" = "lunarlander" ]
 then
     ENV=lunarlander
     ENVN=LunarLander-v2
     LEN=1000
     HIDDEN=256
+    NOISE=0.2
 else
     echo "No environment given, give largegrid, frozenlake or table"
     exit 1
@@ -90,6 +95,61 @@ then
         ::: ac 16 \
         ::: epochs 1 20 \
         ::: qloops 1 4 \
+        ::: run $RUNS
+fi
+
+# BDPI with off-policy noise
+if true
+then
+    parallel --header : echo $PYTHON main.py \
+        --name "parallel-noise-$ENV-{variant}-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" \
+        --offpolicy-noise $NOISE \
+        --pursuit-variant "{variant}" \
+        --env $ENVN \
+        --episodes $LEN \
+        --hidden $HIDDEN \
+        --lr 0.0001 \
+        --temp 0 \
+        --er {er} \
+        --erfreq 1 \
+        --loops {loops} \
+        --actor-count {ac} \
+        --q-loops {qloops} \
+        --epochs {epochs} \
+        --erpoolsize 20000 "\"2>\"" "log-parallel-noise-$ENV-{variant}-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
+        ::: er 256 \
+        ::: loops 16 \
+        ::: ac 16 \
+        ::: epochs 20 \
+        ::: qloops 4 \
+        ::: variant rp \
+        ::: run $RUNS
+fi
+
+# Bootstrapped DQN with off-policy noise
+if true
+then
+    parallel --header : echo $PYTHON main.py \
+        --name "bootstrapped-noise-$ENV-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" \
+        --offpolicy-noise $NOISE \
+        --learning-algo egreedy \
+        --temp 0 \
+        --env $ENVN \
+        --episodes $LEN \
+        --hidden $HIDDEN \
+        --lr 0.0001 \
+        --er {er} \
+        --erfreq 1 \
+        --loops {loops} \
+        --actor-count {ac} \
+        --q-loops {qloops} \
+        --epochs {epochs} \
+        --erpoolsize 20000 "\"2>\"" "log-bootstrapped-noise-$ENV-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
+        ::: er 256 \
+        ::: loops 1 \
+        ::: ac 16 \
+        ::: epochs 20 \
+        ::: qloops 1 \
         ::: run $RUNS
 fi
 

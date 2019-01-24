@@ -180,7 +180,7 @@ class Learner(object):
             action, experience = self._bdpi.select_action(state, env_state)
 
             # Change the action if off-policy noise is to be used
-            if self._offpolicy_noise and random.random() < self._temp:
+            if random.random() < self._offpolicy_noise:
                 action = random.randrange(self._num_actions)
                 experience.action = action
 
@@ -269,7 +269,7 @@ def main():
     parser.add_argument("--load", type=str, help="File from which to load the neural network weights")
     parser.add_argument("--save", type=str, help="Basename of saved weight files. If not given, nothing is saved")
 
-    parser.add_argument("--offpolicy-noise", action="store_true", default=False, help="Add some off-policy noise on the actions executed by the agent, using e-Greedy with --temp.")
+    parser.add_argument("--offpolicy-noise", type=float, default=0.0, help="Add some off-policy noise on the actions executed by the agent, using e-Greedy with this value as epsilon.")
     parser.add_argument("--pursuit-variant", type=str, choices=['generalized', 'ri', 'rp', 'mimic'], default='rp', help="Pursuit Learning algorithm used, mimic enables the Actor-Mimic")
     parser.add_argument("--learning-algo", type=str, choices=['egreedy', 'softmax', 'pursuit'], default='pursuit', help="Action selection method")
     parser.add_argument("--temp", type=str, default='0.1', help="Epsilon or temperature. Can be a value_factor format where value is multiplied by factor after every episode")
@@ -306,13 +306,13 @@ def main():
             _, reward, seen_reward, done, length = learner.execute(s)
 
             # Ignore perturbed episodes
-            if learner._offpolicy_noise:
-                learner._offpolicy_noise = False
+            if learner._offpolicy_noise > 0.0:
+                learner._offpolicy_noise = 0.0
                 learner._learn_freq = 1e6
                 continue
 
-            if args.offpolicy_noise:
-                learner._offpolicy_noise = True
+            if args.offpolicy_noise > 0.0:
+                learner._offpolicy_noise = args.offpolicy_noise
                 learner._learn_freq = args.erfreq
 
             # Keep track of best episodes
