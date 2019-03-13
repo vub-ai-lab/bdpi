@@ -3,6 +3,9 @@ RUNS="1 2 3 4 5 6 7 8"
 PYTHON="python3"
 MAIN_VARIANT="rp"
 
+LR=1e-4
+EPOCHS=20
+
 if [ "$1" = "largegrid" ]
 then
     ENV=largegrid
@@ -38,6 +41,15 @@ then
     LEN=1000
     HIDDEN=256
     NOISE=0.2
+elif [ "$1" = "hallway" ]
+then
+    ENV=hallway
+    ENVN=MiniWorld-Hallway-v0
+    LEN=500
+    HIDDEN=256
+    NOISE=0.2
+    LR=1e-5
+    EPOCHS=1
 else
     echo "No environment given, give largegrid, frozenlake or table"
     exit 1
@@ -54,8 +66,7 @@ then
         --env $ENVN \
         --episodes $LEN \
         --hidden $HIDDEN \
-        --lr 0.0001 \
-        --temp 0 \
+        --lr $LR \
         --er {er} \
         --erfreq 1 \
         --loops {loops} \
@@ -66,7 +77,7 @@ then
         ::: er 256 \
         ::: loops 8 16 32 \
         ::: ac 8 16 32 \
-        ::: epochs 20 \
+        ::: epochs $EPOCHS \
         ::: qloops 1 2 4 \
         ::: variant rp mimic \
         ::: run $RUNS
@@ -82,7 +93,7 @@ then
         --env $ENVN \
         --episodes $LEN \
         --hidden $HIDDEN \
-        --lr 0.0001 \
+        --lr $LR \
         --er {er} \
         --erfreq 1 \
         --loops {loops} \
@@ -93,7 +104,7 @@ then
         ::: er 256 \
         ::: loops 1 16 \
         ::: ac 16 \
-        ::: epochs 1 20 \
+        ::: epochs 1 $EPOCHS \
         ::: qloops 1 4 \
         ::: run $RUNS
 fi
@@ -108,7 +119,7 @@ then
         --env $ENVN \
         --episodes $LEN \
         --hidden $HIDDEN \
-        --lr 0.0001 \
+        --lr $LR \
         --temp 0 \
         --er {er} \
         --erfreq 1 \
@@ -120,7 +131,7 @@ then
         ::: er 256 \
         ::: loops 16 \
         ::: ac 16 \
-        ::: epochs 20 \
+        ::: epochs $EPOCHS \
         ::: qloops 4 \
         ::: variant rp \
         ::: run $RUNS
@@ -148,7 +159,7 @@ then
         ::: er 256 \
         ::: loops 1 \
         ::: ac 16 \
-        ::: epochs 20 \
+        ::: epochs $EPOCHS \
         ::: qloops 1 \
         ::: run $RUNS
 fi
