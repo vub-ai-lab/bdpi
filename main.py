@@ -27,6 +27,8 @@ import gym
 import gym.envs.atari.atari_env
 import numpy as np
 import datetime
+import threading
+import multiprocessing
 
 import gym_envs
 import atariwrap
@@ -46,6 +48,7 @@ class Learner(object):
         self.total_episodes = 0
         self._datetime = datetime.datetime.now()
 
+        self._async_actor = args.async_actor
         self._render = args.render
         self._learn_loops = args.loops
         self._learn_freq = args.erfreq
@@ -230,7 +233,7 @@ class Learner(object):
             else:
                 do_learn = (self.total_timesteps % self._learn_freq == 0)
 
-            if do_learn:
+            if do_learn and not self._async_actor:
                 s = datetime.datetime.now()
                 d = (s - self._datetime).total_seconds()
                 print('Start Learning, in-between is %.3f seconds...' % d)
@@ -246,7 +249,15 @@ class Learner(object):
 
         return (env_state, cumulative_reward, seen_reward, done, i)
 
+def async_loop(bdpi):
+    """ Constantly ask BDPI to learn, used when --async-actor is set.
+    """
+    while True:
+        bdpi.train()
+
 def main():
+    multiprocessing.set_start_method('spawn')
+
     # Parse parameters
     parser = argparse.ArgumentParser(description="Reinforcement Learning for the Gym")
 
@@ -256,6 +267,7 @@ def main():
     parser.add_argument("--retro", action='store_true', default=False, help="The environment is a OpenAI Retro environment (not a Gym one)")
     parser.add_argument("--episodes", type=int, default=5000, help="Number of episodes to run")
     parser.add_argument("--name", type=str, default='', help="Experiment name")
+    parser.add_argument("--async-actor", default=False, action="store_true", help="Learn in parallel with acting, useful for slow constant-rate environments")
 
     parser.add_argument("--erpoolsize", type=int, default=2000, help="Number of experiences stored by each option for experience replay")
     parser.add_argument("--er", type=int, default=50, help="Number of experiences used to build a replay minibatch")
@@ -286,8 +298,14 @@ def main():
         print('Loading', args.load)
         learner.loadstore(args.load, load=True)
 
+    # Start async learner if needed
+    if args.async_actor:
+        t = threading.Thread(target=lambda: async_loop(learner._bdpi))
+        t.start()
+
     # Execute the environment and learn from it
     f = open('out-' + args.name, 'w')
+    print('# Arguments:', ' '.join(sys.argv[1:]), file=f)
     start_dt = datetime.datetime.now()
 
     if args.monitor:
