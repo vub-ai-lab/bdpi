@@ -1,5 +1,5 @@
 # This file is part of Bootstrapped Dual Policy Iteration
-# 
+#
 # Copyright 2018, Vrije Universiteit Brussel (http://vub.ac.be)
 #     authored by Denis Steckelmacher <dsteckel@ai.vub.ac.be>
 #
@@ -21,6 +21,7 @@ import numpy as np
 
 import time
 import collections
+import threading
 import random
 import copy
 import sys
@@ -32,25 +33,44 @@ ALPHA = 0.2
 ALPHAA = 0.05 # 0.001
 GAMMA = 0.99
 
-class Experience:
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.fastest = True
+
+if 'NO_LZO' in os.environ:
+    lzo.compress = lambda x: x
+    lzo.decompress = lambda x: x
+
+class Experience(object):
     """ States, actions, rewards experienced by an agent
     """
-    __slots__ = 'action', 'entropy', 'reward', 'next_experience', '_state', '_shape'
+    __slots__ = 'action', 'entropy', 'reward', '_state', '_nextstate', '_shape', '_dtype'
 
     def __init__(self, state, action, entropy):
         self.action = action
         self.entropy = entropy
-
         self.reward = 0.0
-        self.next_experience = None
 
         # Compress state when storing an experience
-        s = state.tostring()
-        self._state = lzo.compress(s)
+        self._state = lzo.compress(state.tobytes())
         self._shape = state.shape
+        self._dtype = state.dtype
+        self._nextstate = None
+
+    def set_next(self, e):
+        self._nextstate = e._state
 
     def state(self):
-        return np.fromstring(lzo.decompress(self._state), dtype=np.float32).reshape(self._shape)
+        return self._decompress(self._state)
+
+    def next_state(self):
+        return self._decompress(self._nextstate)
+
+    def _decompress(self, s):
+        if s is None:
+            return None
+        else:
+            return np.fromstring(lzo.decompress(s), dtype=self._dtype).reshape(self._shape)
 
 
 class Learner:
@@ -113,13 +133,21 @@ class Learner:
     def _make_model(self):
         """ Create all the required network for a sub-option
         """
-        def make_hidden(layers, inp_shape):
-            if len(inp_shape) > 1:
+        def make_hidden(layers):
+            if len(self.state_shape) > 1:
                 # 2D image, add convolutions
-                sizes = [8, 4, 3]
-                strides = [4, 2, 1]
-                filters = [32, 64, 32]
-                in_channels = inp_shape[0]
+                if self.args.cnn_type == 'atari':
+                    sizes = [8, 4, 3]
+                    strides = [4, 2, 1]
+                    pooling = [1, 1, 1]
+                    filters = [32, 64, 32]
+                elif self.args.cnn_type == 'mnist':
+                    sizes = [3, 3, 3]
+                    strides = [1, 1, 1]
+                    pooling = [2, 2, 2]
+                    filters = [32, 32, 32]
+
+                in_channels = self.state_shape[0]
 
                 for i in range(len(sizes)):
                     layers.append(torch.nn.Conv2d(
@@ -131,13 +159,16 @@ class Learner:
                     ))
                     layers.append(torch.nn.ReLU())
 
+                    if pooling[i] > 1:
+                        layers.append(torch.nn.MaxPool2d(pooling[i]))
+
                     in_channels = filters[i]
 
                 layers.append(Flatten())
 
-                inp_size = torch.nn.Sequential(*layers)(torch.zeros((1,) + inp_shape)).shape[1]
+                inp_size = torch.nn.Sequential(*layers)(torch.zeros((1,) + self.state_shape)).shape[1]
             else:
-                inp_size = inp_shape[0]
+                inp_size = self.state_shape[0]
 
             for i in range(self.args.layers):
                 layers.append(torch.nn.Linear(inp_size if i == 0 else self.args.hidden, self.args.hidden))
@@ -149,7 +180,8 @@ class Learner:
             if torch.cuda.is_available():
                 model = model.cuda()
 
-            optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr)
+            scale = 1.0 if self.is_critic else 0.1
+            optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr*scale)
 
             if self.args.pursuit_variant == 'mimic' and not self.is_critic:
                 # Use the Actor-Mimic loss
@@ -161,7 +193,7 @@ class Learner:
 
         layers = []
 
-        make_hidden(layers, self.state_shape)
+        make_hidden(layers)
         layers.append(torch.nn.Linear(self.args.hidden, self.num_actions))
 
         if not self.is_critic:
@@ -223,49 +255,56 @@ class Actor(Learner):
             self._models[0],
             states,
             train_probas,
-            self.args.epochs
+            self.args.aepochs
         )
 
 class Critic(Learner):
     """ A critic learned with Aggressive Bootstrapped Clipped DQN
     """
+    def _setup(self):
+        super(Critic, self)._setup()
+
+        self._a, self._b = self._models
+
     def train(self, experiences):
         """ Train the critic from experiences.
         """
-        states_numpy = np.array([e.state() for e in experiences], dtype=np.float32)
-        states = variable(states_numpy)
+        # Prepare Numpy arrays from the experiences
+        states = np.array([e.state() for e in experiences], dtype=np.float32)
         actions = np.array([e.action for e in experiences], dtype=np.int32)
         rewards = np.array([e.reward for e in experiences], dtype=np.float32)
 
         # Prepare the list of states for which target Q-Values have to be computed
-        next_experiences = [e.next_experience for e in experiences]
-        nes = [e for e in next_experiences if e is not None]
-        next_indexes = np.array([i for i, e in enumerate(next_experiences) if e is not None], dtype=np.int32)
-        next_states = np.array([e.state() for e in nes])
+        next_indexes = np.array([i for i, e in enumerate(experiences) if e.next_state() is not None], dtype=np.int32)
+        next_states = np.array([e.next_state() for e in experiences if e.next_state() is not None], dtype=np.float32)
+
+        # Put states on the GPU
+        vstates = variable(states)
+        vnext_states = variable(next_states)# Perform training iterations
 
         # Perform training iterations
         for i in range(self.args.q_loops):
             # Q-Learning
-            critic_qvalues = self._predict_model(self._models[0], states)       # Original Q-Values predicted by the newest Q-function
+            critic_qvalues = self._predict_model(self._a, vstates)
 
             self._train_loop(
-                states,
+                vstates,
                 actions,
                 rewards,
                 critic_qvalues,
-                next_states,
+                vnext_states,
                 next_indexes
             )
 
             # Clipped DQN, as Double DQN does, swaps the models after every training iteration
-            self._models[0], self._models[1] = self._models[1], self._models[0]
+            self._a, self._b = self._b, self._a
 
-        return (states_numpy, actions, critic_qvalues)
+        return (states, actions, critic_qvalues)
 
     def predict(self, state):
         """ Return the Q-Values corresponding to a state
         """
-        return self._predict_model(self._models[0], state)[0]
+        return self._predict_model(self._a, state)[0]
 
     def _train_loop(self, states, actions, rewards, critic_qvalues, next_states, next_indexes):
         """ Perform one iteration of Clipped DQN on the critic.
@@ -277,21 +316,21 @@ class Critic(Learner):
 
         next_values[next_indexes] += GAMMA * self._get_values(next_states)
 
-        # Train using Q-Learning
-        critic_qvalues[QN, actions] += ALPHA * (next_values - critic_qvalues[QN, actions])
+        # Train the network
+        critic_qvalues[QN, actions] += self.args.clr * (next_values - critic_qvalues[QN, actions])
 
         self._train_model(
-            self._models[0],
+            self._a,
             states,
             critic_qvalues,
-            self.args.epochs
+            self.args.cepochs
         )
 
     def _get_values(self, states):
         """ Return a list of values, one for each state.
         """
-        qvalues_a = self._predict_model(self._models[0], states)
-        qvalues_b = self._predict_model(self._models[1], states)
+        qvalues_a = self._predict_model(self._a, states)
+        qvalues_b = self._predict_model(self._b, states)
         QN = np.arange(states.shape[0])
 
         qvalues = np.minimum(qvalues_a, qvalues_b)  # Clipped DQN target
@@ -301,7 +340,7 @@ class Critic(Learner):
 class BDPI(object):
     """ The Bootstrapped Dual Policy Iteration algorithm.
     """
-    def __init__(self, state_shape, num_actions, args, policy=None):
+    def __init__(self, state_shape, num_actions, args):
         """ Constructor.
 
             - state_shape: tuple, shape of the observations
@@ -311,8 +350,8 @@ class BDPI(object):
             - policy: function(state) -> list of floats. If policy returns something
                     different than None, it overrides what the actor would have done
         """
+        self.state_shape = state_shape
         self.num_actions = num_actions
-        self.policy = policy
         self.args = args
         self.use_actor = (args.learning_algo == 'pursuit')
 
@@ -325,6 +364,7 @@ class BDPI(object):
             self._temp = float(args.temp)
             self._decay = 1.0
 
+        self._lock = threading.Lock()
         self._experiences = collections.deque([], args.erpoolsize)
         self._actor_index = 0
 
@@ -351,6 +391,7 @@ class BDPI(object):
                 critic.load_state_dict(weights)
         else:
             torch.save(self._actor.state_dict(), filename + '-actor')
+            torch.save(self._actor, filename + '-actormodel')
 
             for i, critic in enumerate(self._critics):
                 torch.save(critic.state_dict(), filename + '-critic' + str(i))
@@ -384,10 +425,11 @@ class BDPI(object):
 
     def train(self):
         # Sample experiences from the experience pool
-        all_experiences = list(self._experiences)[:-1]
-        count = min(len(all_experiences), self.args.er)
+        with self._lock:
+            all_experiences = list(self._experiences)[:-1]
+            count = min(len(all_experiences), self.args.er)
 
-        if count < 16:
+        if count < self.args.er:
             return 0
 
         # Train each critic, then use its greedy function to train the actor
@@ -406,14 +448,7 @@ class BDPI(object):
         """ Return a sub-option to be executed and store an experience in the
             experience replay buffer.
         """
-        probas = None
-
-        if self.policy is not None:
-            # Allow the policy to override what the option would have done
-            probas = self.policy(env_state)
-
-        if probas is None:
-            probas = self._predict_probas(state)
+        probas = self._predict_probas(state)
 
         # Normalize the probabilities of best action to obtain the probabilities
         probas /= probas.sum()
@@ -429,8 +464,9 @@ class BDPI(object):
             entropy
         )
 
-        # Add the experience to a random set of actors.
-        self._experiences.append(e)
+        # Add the experience to the buffer
+        with self._lock:
+            self._experiences.append(e)
 
         return action_index, e
 
@@ -441,7 +477,7 @@ def sample_wr(population, k):
     "Chooses k random elements (with replacement) from a population"
     n = len(population)
 
-    _random, _int = random.random, int  # speed hack 
+    _random, _int = random.random, int  # speed hack
     result = [None] * k
 
     for i in range(k):
@@ -458,6 +494,9 @@ def variable(inp):
 
     if torch.cuda.is_available():
         rs = rs.cuda()
+
+    # Ensure we have floats
+    rs = rs.float()
 
     return rs
 

@@ -1,5 +1,5 @@
 # This file is part of Bootstrapped Dual Policy Iteration
-# 
+#
 # Copyright 2018, Vrije Universiteit Brussel (http://vub.ac.be)
 #     authored by Denis Steckelmacher <dsteckel@ai.vub.ac.be>
 #
@@ -109,7 +109,7 @@ class Learner(object):
         self._aspace = aspace
 
         # BDPI algorithm instance
-        self._bdpi = BDPI(self._state_shape, self._num_actions, args, None)
+        self._bdpi = BDPI(self._state_shape, self._num_actions, args)
 
         # Summary
         print('Number of primitive actions:', self._num_actions)
@@ -149,20 +149,19 @@ class Learner(object):
         entropies = []
 
         e = self._first_experience
+        index = self._bdpi._experiences.index(e)
 
-        while e:
+        for e in list(self._bdpi._experiences)[index:]:
             states.append(e.state())
             actions.append(e.action)
             rewards.append(e.reward)
             entropies.append(e.entropy)
 
-            e = e.next_experience
+        with open(name + '.episode', 'wb') as f:
+            f.write(lzo.compress(pickle.dumps((states, actions, rewards, entropies))))
 
-        s = pickle.dumps((states, actions, rewards, entropies))
-        s = lzo.compress(s)
-        f = open(name + '.episode', 'wb')
-        f.write(s)
-        f.close()
+        with open('/tmp/' + name + '-buffer.picklez', 'wb') as f:
+            f.write(lzo.compress(pickle.dumps(list(self._bdpi._experiences))))
 
     def execute(self, env_state):
         """ Execute one episode in the environment.
@@ -191,7 +190,7 @@ class Learner(object):
             if self._first_experience is None:
                 self._first_experience = experience
             if self._last_experience is not None:
-                self._last_experience.next_experience = experience
+                self._last_experience.set_next(experience)
 
             self._last_experience = experience
 
@@ -273,7 +272,8 @@ def main():
     parser.add_argument("--er", type=int, default=50, help="Number of experiences used to build a replay minibatch")
     parser.add_argument("--erfreq", type=int, default=1, help="Learn using a batch of experiences every N time-steps, 0 for every episode")
     parser.add_argument("--loops", type=int, default=1, help="Number of replay batches replayed at each time-step")
-    parser.add_argument("--epochs", type=int, default=1, help="Number of epochs used to fit the actors and critics")
+    parser.add_argument("--aepochs", type=int, default=1, help="Number of epochs used to fit the actor")
+    parser.add_argument("--cepochs", type=int, default=1, help="Number of epochs used to fit the critic")
 
     parser.add_argument("--hidden", default=100, type=int, help="Hidden neurons of the policy network")
     parser.add_argument("--layers", default=1, type=int, help="Number of hidden layers in the networks")
@@ -287,6 +287,8 @@ def main():
     parser.add_argument("--temp", type=str, default='0.1', help="Epsilon or temperature. Can be a value_factor format where value is multiplied by factor after every episode")
     parser.add_argument("--actor-count", type=int, default=1, help="Amount of 'actors' in the mixture of experts")
     parser.add_argument("--q-loops", type=int, default=10, help="Number of training iterations performed on the critic for each training epoch")
+    parser.add_argument("--alr", type=float, default=0.05, help="Actor learning rate")
+    parser.add_argument("--clr", type=float, default=0.2, help="Critic learning rate")
 
     args = parser.parse_args()
 
