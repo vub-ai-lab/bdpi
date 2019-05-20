@@ -32,7 +32,7 @@ GOAL = np.array([0.5, 0.5, math.pi * 0.25])
 TOLERANCE = np.array([0.05, 0.05, 0.3])
 
 class Table(gym.Env):
-    def __init__(self, rnd):
+    def __init__(self, rnd, backup):
 
         self.action_space = spaces.Discrete(3)  # 3 actions : turn left, right, go forward
         self.observation_space = spaces.Box(
@@ -42,6 +42,7 @@ class Table(gym.Env):
 
         self.gui = None
         self.rnd = rnd
+        self.backup = backup
 
         self._timestep = 0
         self.reset()
@@ -84,10 +85,28 @@ class Table(gym.Env):
 
         self._timestep += 1
 
-        # If cell resulting from action= '-' or '|'--> wall, then agent does not move
         original_x = self._x
         original_y = self._y
 
+        # Backup policy
+        if self.backup:
+            x, y, angle = self._x, self._y, self._angle
+            p2 = math.pi / 2.
+            turn = False
+
+            if x < 0.1 and p2 < angle < p2*3:
+                turn = True
+            if x > 0.9 and not (p2 < angle < p2*3):
+                turn = True
+            if y < 0.1 and angle > math.pi:
+                turn = True
+            if y > 0.9 and angle < math.pi:
+                turn = True
+
+            if turn:
+                action = 0
+
+        # If cell resulting from action= '-' or '|'--> wall, then agent does not move
         if action == 0 :
             # turn left
             self._angle = (self._angle + 0.1) % (2 * math.pi)
