@@ -1,6 +1,6 @@
 # This file is part of Bootstrapped Dual Policy Iteration
 #
-# Copyright 2018, Vrije Universiteit Brussel (http://vub.ac.be)
+# Copyright 2018-2019, Vrije Universiteit Brussel (http://vub.ac.be)
 #     authored by Denis Steckelmacher <dsteckel@ai.vub.ac.be>
 #
 # BDPI is free software: you can redistribute it and/or modify
@@ -28,10 +28,11 @@ import sys
 import os
 import pickle
 import lzo
+import copy
 
-ALPHA = 0.2
-ALPHAA = 0.05 # 0.001
-GAMMA = 0.99
+import pool
+
+GAMMA = 0.999
 
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
@@ -180,6 +181,9 @@ class Learner:
             if torch.cuda.is_available():
                 model = model.cuda()
 
+            if self.args.threads > 1:
+                model.share_memory()
+
             scale = 1.0 if self.is_critic else 0.1
             optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr*scale)
 
@@ -248,7 +252,7 @@ class Actor(Learner):
             # Discuss gradient vs target, and say that https://www.sciencedirect.com/science/article/pii/S0016003205000645 uses
             # a gradient-based approach with continuous actions (which sure works, it's policy gradient)
             train_probas /= 1e-6 + train_probas.sum(1)[:, None]
-            train_probas = (1. - ALPHAA) * actor_probas + ALPHAA * train_probas
+            train_probas = (1. - self.args.alr) * actor_probas + self.args.alr * train_probas
 
         # Fit the actor
         self._train_model(
@@ -280,7 +284,7 @@ class Critic(Learner):
 
         # Put states on the GPU
         vstates = variable(states)
-        vnext_states = variable(next_states)# Perform training iterations
+        vnext_states = variable(next_states)
 
         # Perform training iterations
         for i in range(self.args.q_loops):
@@ -309,11 +313,9 @@ class Critic(Learner):
     def _train_loop(self, states, actions, rewards, critic_qvalues, next_states, next_indexes):
         """ Perform one iteration of Clipped DQN on the critic.
         """
-
         # Get all the next values, using the Clipped DQN target of min(Qa, Qb)
         QN = np.arange(states.shape[0])
         next_values = np.copy(rewards)
-
         next_values[next_indexes] += GAMMA * self._get_values(next_states)
 
         # Train the network
@@ -380,6 +382,13 @@ class BDPI(object):
                 True                        # is_critic
             ))
 
+        # Prepare for multiprocessing
+        if args.threads > 1:
+            self._pool = pool.Pool(args.threads, max(args.loops, 2 * args.threads), self._critics + [self._actor])
+            self._map = self._pool.map
+        else:
+            self._map = map
+
     def loadstore(self, filename, load=True):
         """ Load the weights from a base filename
         """
@@ -423,6 +432,14 @@ class BDPI(object):
 
             return probas
 
+    @staticmethod
+    def _train_critic(p):
+        critic, experiences, use_actor, actor = p
+        states, actions, critic_qvalues = critic.train(experiences)
+
+        if use_actor:
+            actor.train(states, actions, critic_qvalues)
+
     def train(self):
         # Sample experiences from the experience pool
         with self._lock:
@@ -433,18 +450,18 @@ class BDPI(object):
             return 0
 
         # Train each critic, then use its greedy function to train the actor
-        for i in range(self.args.loops):
-            critic = random.choice(self._critics)
-            experiences = sample_wr(all_experiences, count)
+        critics = random.sample(self._critics, self.args.loops)
 
-            states, actions, critic_qvalues = critic.train(experiences)
+        params = [
+            [c, sample_wr(all_experiences, count), self.use_actor, self._actor] \
+            for c in critics
+        ]
 
-            if self.use_actor:
-                self._actor.train(states, actions, critic_qvalues)
+        list(self._map(BDPI._train_critic, params))
 
         return count
 
-    def select_action(self, state, env_state):
+    def select_action(self, state):
         """ Return a sub-option to be executed and store an experience in the
             experience replay buffer.
         """
@@ -453,9 +470,9 @@ class BDPI(object):
         # Normalize the probabilities of best action to obtain the probabilities
         probas /= probas.sum()
 
-        # Choose a model depending on a probability distribution
+        # Choose an action depending on a probability distribution
         action_index = int(np.random.choice(range(self.num_actions), p=probas))
-        entropy = -np.sum(probas * np.log2(probas))
+        entropy = float(-np.sum(probas * np.log2(probas)))
 
         # Store the experience
         e = Experience(
@@ -500,12 +517,9 @@ def variable(inp):
 
     return rs
 
-
-class CELoss(torch.nn.Module):
-    """ Cross-Entropy loss with probabilities
-    """
-    def forward(self, x, target):
-        return -torch.sum(target * torch.log(x))
+###
+# Custom PyTorch modules
+###
 
 class Flatten(torch.nn.Module):
     """ Flatten an input, used to map a convolution to a Dense layer

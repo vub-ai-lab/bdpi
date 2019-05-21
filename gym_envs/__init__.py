@@ -1,6 +1,6 @@
 # This file is part of Bootstrapped Dual Policy Iteration
-# 
-# Copyright 2018, Vrije Universiteit Brussel (http://vub.ac.be)
+#
+# Copyright 2018-2019, Vrije Universiteit Brussel (http://vub.ac.be)
 #     authored by Denis Steckelmacher <dsteckel@ai.vub.ac.be>
 #
 # BDPI is free software: you can redistribute it and/or modify
@@ -40,4 +40,4 @@ register(
     id='TableRandom-v0',
     entry_point='gym_envs.table:Table',
     kwargs={'rnd': True, 'backup': False}
-)
+

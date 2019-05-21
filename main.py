@@ -1,6 +1,6 @@
 # This file is part of Bootstrapped Dual Policy Iteration
 #
-# Copyright 2018, Vrije Universiteit Brussel (http://vub.ac.be)
+# Copyright 2018-2019, Vrije Universiteit Brussel (http://vub.ac.be)
 #     authored by Denis Steckelmacher <dsteckel@ai.vub.ac.be>
 #
 # BDPI is free software: you can redistribute it and/or modify
@@ -24,24 +24,30 @@ import random
 import argparse
 
 import gym
-import gym.envs.atari.atari_env
 import numpy as np
 import datetime
 import threading
 import multiprocessing
 
 import gym_envs
-import atariwrap
-from bdpi import BDPI
+import gym_envs.contwrapper
 
+from bdpi import BDPI
+import atariwrap
+
+# Import additional environments if available
 try:
-    # Import additional environments if available
     import gym_miniworld
 except:
     pass
 
+try:
+    import roboschool
+except:
+    pass
+
 class Learner(object):
-    def __init__(self, args):
+    def __init__(self, args, task):
         """ Construct a Learner from parsed arguments
         """
         self.total_timesteps = 0
@@ -52,33 +58,35 @@ class Learner(object):
         self._render = args.render
         self._learn_loops = args.loops
         self._learn_freq = args.erfreq
-        self._offpolicy_noise = args.offpolicy_noise
-        self._temp = float(args.temp)
+        self._atari = args.atari
         self._retro = args.retro
+        self._offpolicy_noise = args.offpolicy_noise
+        self._temp = float(args.temp.split('_')[0])
+        self._task = task
 
         # Make environment
         if args.retro:
             import retro
 
             self._env = retro.make(game=args.env)
+        elif args.atari:
+            self._env = make_atari(args.env)
+            self._env = wrap_deepmind(self._env)
         else:
             self._env = gym.make(args.env)
 
-        # Wrap Atari with the DeepMind cheats
-        if hasattr(self._env, 'unwrapped') and isinstance(self._env.unwrapped, gym.envs.atari.atari_env.AtariEnv):
-            assert 'NoFrameskip' in self._env.spec.id
-
-            self._env = atariwrap.NoopResetEnv(self._env, noop_max=30)
-            self._env = atariwrap.MaxAndSkipEnv(self._env, skip=4)
-            self._env = atariwrap.wrap_deepmind(self._env)
+        if isinstance(self._env.action_space, gym.spaces.Box):
+            # Wrap continuous-action environments
+            self._env = gym_envs.contwrapper.ContWrapper(self._env)
 
         # Observations
-        self._discrete_obs = isinstance(self._env.observation_space, gym.spaces.Discrete)
+        ob = self._env.observation_space
+        self._discrete_obs = isinstance(ob, gym.spaces.Discrete)
 
         if self._discrete_obs:
-            self._state_shape = (self._env.observation_space.n,)                # Prepare for one-hot encoding
+            self._state_shape = (ob.n,)                # Prepare for one-hot encoding
         else:
-            self._state_shape = self._env.observation_space.shape
+            self._state_shape = ob.shape
 
             if len(self._state_shape) > 1:
                 # Fix 2D shape for PyTorch
@@ -101,10 +109,6 @@ class Learner(object):
             # Retro actions are binary vectors of pressed buttons. Quick HACK,
             # only press one button at a time
             self._num_actions = int(np.prod([a.n for a in aspace]))
-        else:
-            # Continuous actions
-            print(aspace)
-            raise NotImplementedError('Continuous actions are not supported')
 
         self._aspace = aspace
 
@@ -123,17 +127,16 @@ class Learner(object):
     def encode_state(self, state):
         """ Encode a raw state from Gym to a Numpy vector
         """
-        if self._discrete_obs:
+        if isinstance(state, int):
             # One-hot encode discrete variables
             rs = np.zeros(shape=self._state_shape, dtype=np.float32)
             rs[state] = 1.0
-        elif len(self._state_shape) > 1:
+            return rs
+        elif len(state.shape) > 1:
             # Atari, retro and other image-based are NHWC, PyTorch is NCHW
-            rs = np.float32(np.swapaxes(state, 2, 0))
+            return np.swapaxes(state, 2, 0)
         else:
-            rs = np.asarray(state, dtype=np.float32)
-
-        return rs
+            return np.asarray(state, dtype=np.float32)
 
     def reset(self, last_reward):
         self._last_experience = None
@@ -169,7 +172,6 @@ class Learner(object):
 
         done = False
         cumulative_reward = 0.0
-        seen_reward = 0.0
         i = 0
 
         while (not done) and (i < 108000):
@@ -179,10 +181,10 @@ class Learner(object):
             old_env_state = env_state
             state = self.encode_state(env_state)
 
-            action, experience = self._bdpi.select_action(state, env_state)
+            action, experience = self._bdpi.select_action(state)
 
             # Change the action if off-policy noise is to be used
-            if random.random() < self._offpolicy_noise:
+            if self._offpolicy_noise and random.random() < self._temp:
                 action = random.randrange(self._num_actions)
                 experience.action = action
 
@@ -203,7 +205,7 @@ class Learner(object):
                     actions[j] = action % self._aspace[j].n
                     action //= self._aspace[j].n
 
-                env_state, reward, done, __ = self._env.step(actions)
+                env_state, reward, done, _ = self._env.step(actions)
             else:
                 # Simple scalar action
                 if self._retro:
@@ -212,19 +214,25 @@ class Learner(object):
                     a[action] = 1
                     action = a
 
-                env_state, reward, done, __ = self._env.step(action)
+                env_state, reward, done, _ = self._env.step(action)
 
             i += 1
-            public_reward = reward
 
             # Render the environment if needed
             if self._render > 0 and self.total_episodes >= self._render:
                 self._env.render()
 
+            # Use the taskfile to modify reward and done
+            additional_reward, additional_done = self._task(old_env_state, action, env_state)
+
+            reward += additional_reward
+
+            if additional_done is not None:
+                done = additional_done
+
             # Add the reward of the action
             experience.reward = reward
-            cumulative_reward += public_reward
-            seen_reward += experience.reward
+            cumulative_reward += reward
 
             # Learn from the experience buffer
             if self._learn_freq == 0:
@@ -246,7 +254,7 @@ class Learner(object):
                 sys.stdout.flush()
                 self._datetime = ns
 
-        return (env_state, cumulative_reward, seen_reward, done, i)
+        return (env_state, cumulative_reward, done, i)
 
 def async_loop(bdpi):
     """ Constantly ask BDPI to learn, used when --async-actor is set.
@@ -255,8 +263,6 @@ def async_loop(bdpi):
         bdpi.train()
 
 def main():
-    multiprocessing.set_start_method('spawn')
-
     # Parse parameters
     parser = argparse.ArgumentParser(description="Reinforcement Learning for the Gym")
 
@@ -264,36 +270,52 @@ def main():
     parser.add_argument("--monitor", action="store_true", default=False, help="Enable Gym monitoring for this run")
     parser.add_argument("--env", required=True, type=str, help="Gym environment to use")
     parser.add_argument("--retro", action='store_true', default=False, help="The environment is a OpenAI Retro environment (not a Gym one)")
+    parser.add_argument("--atari", action="store_true", default=False, help="Wrap an Atari environment and use a more complex neural network")
     parser.add_argument("--episodes", type=int, default=5000, help="Number of episodes to run")
     parser.add_argument("--name", type=str, default='', help="Experiment name")
+    parser.add_argument("--threads", type=int, default=1, help="Number of parallel processes used for training critics. Disables multiprocessing when set to 1")
     parser.add_argument("--async-actor", default=False, action="store_true", help="Learn in parallel with acting, useful for slow constant-rate environments")
+    parser.add_argument("--taskfile", type=str, help="Name of a Python file that contains a task(s, a, s') -> reward, done, that determines the task to be learned by the agent")
 
-    parser.add_argument("--erpoolsize", type=int, default=2000, help="Number of experiences stored by each option for experience replay")
-    parser.add_argument("--er", type=int, default=50, help="Number of experiences used to build a replay minibatch")
+    parser.add_argument("--erpoolsize", type=int, default=20000, help="Number of experiences stored by each option for experience replay")
+    parser.add_argument("--er", type=int, default=256, help="Number of experiences used to build a replay minibatch")
     parser.add_argument("--erfreq", type=int, default=1, help="Learn using a batch of experiences every N time-steps, 0 for every episode")
     parser.add_argument("--loops", type=int, default=1, help="Number of replay batches replayed at each time-step")
     parser.add_argument("--aepochs", type=int, default=1, help="Number of epochs used to fit the actor")
     parser.add_argument("--cepochs", type=int, default=1, help="Number of epochs used to fit the critic")
 
-    parser.add_argument("--hidden", default=100, type=int, help="Hidden neurons of the policy network")
+    parser.add_argument("--cnn-type", default='atari', type=str, choices=['atari', 'mnist'], help="General shape of the CNN, if any. Either DQN-Like, or image-classification-like with more layers")
+    parser.add_argument("--hidden", default=128, type=int, help="Hidden neurons of the policy network")
     parser.add_argument("--layers", default=1, type=int, help="Number of hidden layers in the networks")
     parser.add_argument("--lr", default=1e-3, type=float, help="Learning rate of the neural network")
     parser.add_argument("--load", type=str, help="File from which to load the neural network weights")
     parser.add_argument("--save", type=str, help="Basename of saved weight files. If not given, nothing is saved")
 
-    parser.add_argument("--offpolicy-noise", type=float, default=0.0, help="Add some off-policy noise on the actions executed by the agent, using e-Greedy with this value as epsilon.")
-    parser.add_argument("--pursuit-variant", type=str, choices=['generalized', 'ri', 'rp', 'mimic'], default='rp', help="Pursuit Learning algorithm used, mimic enables the Actor-Mimic")
+    parser.add_argument("--offpolicy-noise", action="store_true", default=False, help="Add some off-policy noise on the actions executed by the agent, using e-Greedy with --temp.")
+    parser.add_argument("--pursuit-variant", type=str, choices=['generalized', 'ri', 'rp', 'pg'], default='rp', help="Pursuit Learning algorithm used")
     parser.add_argument("--learning-algo", type=str, choices=['egreedy', 'softmax', 'pursuit'], default='pursuit', help="Action selection method")
     parser.add_argument("--temp", type=str, default='0.1', help="Epsilon or temperature. Can be a value_factor format where value is multiplied by factor after every episode")
-    parser.add_argument("--actor-count", type=int, default=1, help="Amount of 'actors' in the mixture of experts")
-    parser.add_argument("--q-loops", type=int, default=10, help="Number of training iterations performed on the critic for each training epoch")
+    parser.add_argument("--actor-count", type=int, default=1, help="Number of critics used by BDPI")
+    parser.add_argument("--q-loops", type=int, default=1, help="Number of training iterations performed on the critic for each training epoch")
     parser.add_argument("--alr", type=float, default=0.05, help="Actor learning rate")
     parser.add_argument("--clr", type=float, default=0.2, help="Critic learning rate")
 
     args = parser.parse_args()
 
+    # Loading task description file
+    task = lambda s, a, snext: (0.0, None)
+
+    if args.taskfile is not None:
+        data = open(args.taskfile, 'r').read()
+        compiled = compile(data, args.taskfile, 'exec')
+        d = {}
+        exec(compiled, d)
+
+        if 'task' in d:
+            task = d['task']
+
     # Instantiate learner
-    learner = Learner(args)
+    learner = Learner(args, task)
 
     # Load weights if needed
     if args.load is not None:
@@ -321,18 +343,16 @@ def main():
 
         for i in range(args.episodes):
             learner.reset(reward)
-
-            s = learner._env.reset()
-            _, reward, seen_reward, done, length = learner.execute(s)
+            _, reward, done, length = learner.execute(learner._env.reset())
 
             # Ignore perturbed episodes
-            if learner._offpolicy_noise > 0.0:
-                learner._offpolicy_noise = 0.0
+            if learner._offpolicy_noise:
+                learner._offpolicy_noise = False
                 learner._learn_freq = 1e6
                 continue
 
-            if args.offpolicy_noise > 0.0:
-                learner._offpolicy_noise = args.offpolicy_noise
+            if args.offpolicy_noise:
+                learner._offpolicy_noise = True
                 learner._learn_freq = args.erfreq
 
             # Keep track of best episodes
@@ -350,29 +370,27 @@ def main():
             if (datetime.datetime.now() - old_dt).total_seconds() > 60.0:
                 # Save weights every minute
                 if args.save is not None:
-                    learner.loadstore("%s-%s" % (args.save, args.name), load=False)
+                    learner.loadstore(args.save, load=False)
 
                 # Save last episode
                 learner.save_episode(args.name + '-latest')
 
                 old_dt = datetime.datetime.now()
 
-            print(reward, seen_reward, avg, learner.total_timesteps, (datetime.datetime.now() - start_dt).total_seconds(), length, file=f)
+            print(reward, avg, learner.total_timesteps, (datetime.datetime.now() - start_dt).total_seconds(), length, file=f)
             print(args.name, "Cumulative reward:", reward, "; average reward:", avg, "; length:", length)
             f.flush()
-    except KeyboardInterrupt:
-        pass
+    finally:
+        if args.monitor:
+            learner._env.monitor.close()
 
-    if args.monitor:
-        learner._env.monitor.close()
+        f.close()
 
-    f.close()
+        # Print timing statistics
+        delta = datetime.datetime.now() - start_dt
 
-    # Print timing statistics
-    delta = datetime.datetime.now() - start_dt
-
-    print('Learned during', str(delta).split('.')[0])
-    print('Learning rate:', learner.total_timesteps / delta.total_seconds(), 'timesteps per second')
+        print('Learned during', str(delta).split('.')[0])
+        print('Learning rate:', learner.total_timesteps / delta.total_seconds(), 'timesteps per second')
 
 if __name__ == '__main__':
     main()

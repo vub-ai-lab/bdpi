@@ -35,14 +35,6 @@ Explaining BDPI can be done by following the loop:
 
 Because the actor has a learning rate, it learns the **expected greedy policy** of the critics, that, being trained off-policy, learn the **optimal Q-Function**. And because the greedy policy of the optimal Q-Function is the optimal policy, the **actor learns the optimal policy**. The way the actor moves towards that optimal policy closely resembles Thompson sampling, empirically shown to be an extremely good exploration strategy. This may explain why our results look so "BDPI learns immediately while the other algorithms are flat lines", BDPI almost perfectly balances exploration and exploitation, even though it does not have any advanced feature like novelty-based exploration, reward shaping, or reward rewriting.
 
-## Where are the Atari games?
-
-In the paper, we discuss why we did not perform any experiment on the Atari games. The general idea is that Atari games can be learned with DQN (and its more recent variants, such as Rainbow). All these variants share common traits, such as using a small batch size (32 experiences), training the Q-network for only a single epoch per time-step, or using a target network. All these traits are mandatory. When we change the batch size (in any direction!), DQN fails to learn any game. If more than one training epoch is performed, DQN breaks. If the target network is removed, DQN breaks. Even more importantly, if we sample two batches of experiences per time-step (instead of 1), and apply DQN to each of these batches in an attempt to double its sample-efficiency, DQN breaks.
-
-Given what we observed works on the Atari games, we configured BDPI according to these parameters. That is, a batch size of 32, a target network instead of Clipped DQN, and training the neural network for only a single epoch. We kept our several critics and the actor. The good news is that it worked quite well, be obtained encouraging results on Montezuma's Revenge where BDPI manages to consistently get the key, and quite often leave the first room. This is exceptional for an algorithm without novelty-based exploration or any other advanced feature! But the general sample-efficiency of BDPI was almost exactly the same as DQN. More importantly, was it still BDPI? Our contributions are aggressive critics, training for several epochs, and using large batch sizes. If we remove all that, we are not evaluating BDPI anymore, we are evaluating a couple of DQN critics with an actor.
-
-So, we decided to dedicate time and patience to the Atari games, find out why they need such precise parameters (a batch size of 64 or 16 fails, but 32 works, why!?), then come back with the full and complete BDPI algorithm on Atari games.
-
 ## Source Code
 
 The following components are available in this repository
