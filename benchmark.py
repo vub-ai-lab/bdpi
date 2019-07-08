@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # This file is part of Bootstrapped Dual Policy Iteration
-# 
+#
 # Copyright 2018, Vrije Universiteit Brussel (http://vub.ac.be)
 #     authored by Denis Steckelmacher <dsteckel@ai.vub.ac.be>
 #
@@ -30,7 +30,7 @@ ENVS = ['table', 'frozenlake', 'largegrid', 'lunarlander']
 def log(s):
     print('\033[32m' + s + '\033[0m')
 
-def run_env(command, cores, num_cpus, name):
+def run_env(command, cores, num_cpus, name, multithread):
     """ Run an environment on several cores
     """
     f = open(name, 'w')
@@ -39,20 +39,25 @@ def run_env(command, cores, num_cpus, name):
     # Launch the processes, each process has an affinity to one core
     processes = []
 
-    for i in range(cores):
+    if not multithread:
+        # Launch replicas of the process
+        for i in range(cores):
+            p = subprocess.Popen(command.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            processes.append(p)
+
+            thread_index = i
+
+            psutil.Process(p.pid).cpu_affinity([thread_index])
+    else:
+        # Launch one process, it will use the requested threads
         p = subprocess.Popen(command.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         processes.append(p)
 
-        if i < (num_cpus // 2):
-            thread_index = i * 2                        # Even threads first
-        else:
-            thread_index = (i - num_cpus // 2) * 2 + 1  # Odd threads later
-
-        psutil.Process(p.pid).cpu_affinity([thread_index])
+        psutil.Process(p.pid).cpu_affinity(list(range(cores)))
 
 
     # Read the lines
-    will_exit = False
+    batches_seen = 0
 
     while True:
         # Start perf-stat
@@ -61,11 +66,12 @@ def run_env(command, cores, num_cpus, name):
         # Read the lines
         lines = []
 
-        for p in processes:
-            for line in p.stdout:
-                if line.startswith(b'Learned'):
-                    lines.append(str(line, 'ascii'))
-                    break
+        while len(lines) < 1:
+            for p in processes:
+                for line in p.stdout:
+                    if line.startswith(b'Learned') and b'0 steps' not in line:
+                        lines.append(str(line, 'ascii'))
+                        break
 
         batch_size = int(lines[0].split()[1])
 
@@ -88,20 +94,19 @@ def run_env(command, cores, num_cpus, name):
         # Summary of the statistics
         rs.append((s, insns))
 
-        print('%i/512 %f t/s, ipc %f' % (batch_size, s, insns), end='\r')
+        print('%i/256 %f t/s, ipc %f' % (batch_size, s, insns), end='\r')
         sys.stdout.flush()
 
         # Write the statistics
-        if batch_size == 512 and not will_exit:
-            # First 512 batch, where JIT happens. Discard it
+        if batch_size == 256:
+            batches_seen += 1
+
+        if batches_seen < (64 if multithread else 8):
+            # First 256 batches, where JIT happens. Discard it
             pass
         else:
             f.write('%i %i %f %f\n' % (cores, batch_size, s, insns))
-
-        if will_exit:
             break
-        if batch_size == 512:
-            will_exit = True
 
     # Kill the processes
     for p in processes:
@@ -122,6 +127,8 @@ def main():
     # Prepare the command file for all the environments
     commands = []
 
+    log('WARNING: When comparing processors, use the same num_cpus for all of them, and use run_cpu to set the actual number of cores. Otherwise, results cannot be compared.')
+    log('')
     log('Preparing commands...')
 
     for e in ENVS:
@@ -133,6 +140,7 @@ def main():
                 if 'rp-16critics' in line and 'epochs20x16-qloops4-1' in line:
                     # Remove the "2> log*"
                     parts = line.split()[:-2]
+                    parts[19] = str(num_cpus)           # Force --loops to be the number of CPUs, to get meaningul speed measurements for high thread counts
                     commands.append(' '.join(parts))
                     break
     # All tests
@@ -141,13 +149,24 @@ def main():
     else:
         all_cpus = [1] + list(range(4, num_cpus+1, 4))
 
+    # Multi-thread test
     for c, e in zip(commands, ENVS):
         for threads in reversed(all_cpus):
-            log('Benchmark x%i on %s...' % (threads, e))
+            log('Benchmark multi-thread x%i on %s...' % (threads, e))
 
-            rs = run_env(c, threads, num_cpus, 'out-%s-%ix.csv' % (e, threads))
+            c = c + ' --threads %i' % threads
+            rs = run_env(c, threads, num_cpus, 'out-%s-%ix-threads.csv' % (e, threads), multithread=True)
 
-            print('    %i (small), %i (large), %f instructions per cycle' % (rs[0][0], rs[-1][0], rs[-1][1]))
+            print('    %i t/s, %f instructions per cycle' % (rs[-1][0], rs[-1][1]))
+
+    # Multi-process test
+    for c, e in zip(commands, ENVS):
+        for threads in reversed(all_cpus):
+            log('Benchmark multi-process x%i on %s...' % (threads, e))
+
+            rs = run_env(c, threads, num_cpus, 'out-%s-%ix.csv' % (e, threads), multithread=False)
+
+            print('    %i t/s, %f instructions per cycle' % (rs[-1][0], rs[-1][1]))
 
 if __name__ == '__main__':
     main()

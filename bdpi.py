@@ -450,7 +450,8 @@ class BDPI(object):
             return 0
 
         # Train each critic, then use its greedy function to train the actor
-        critics = random.sample(self._critics, self.args.loops)
+        critics = sample_wr(self._critics, self.args.loops)
+        critics.sort(key=lambda c: id(c))
 
         params = [
             [c, sample_wr(all_experiences, count), self.use_actor, self._actor] \

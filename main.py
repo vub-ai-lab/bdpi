@@ -127,7 +127,7 @@ class Learner(object):
     def encode_state(self, state):
         """ Encode a raw state from Gym to a Numpy vector
         """
-        if isinstance(state, int):
+        if self._discrete_obs:
             # One-hot encode discrete variables
             rs = np.zeros(shape=self._state_shape, dtype=np.float32)
             rs[state] = 1.0
@@ -249,7 +249,6 @@ class Learner(object):
                 ns = datetime.datetime.now()
                 d = (ns - s).total_seconds()
                 print('Learned %i steps in %.3f seconds, %.2f timesteps per second' % (count, d, count / d))
-                print('S', count / d, file=sys.stderr)
                 sys.stderr.flush()
                 sys.stdout.flush()
                 self._datetime = ns

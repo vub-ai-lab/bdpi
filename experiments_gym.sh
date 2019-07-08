@@ -72,7 +72,8 @@ then
         --loops {loops} \
         --actor-count {ac} \
         --q-loops {qloops} \
-        --epochs {epochs} \
+        --aepochs {epochs} \
+        --cepochs {epochs} \
         --erpoolsize 20000 "\"2>\"" "log-parallel-$ENV-{variant}-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
         ::: er 256 \
         ::: loops 8 16 32 \
@@ -99,7 +100,8 @@ then
         --loops {loops} \
         --actor-count {ac} \
         --q-loops {qloops} \
-        --epochs {epochs} \
+        --aepochs {epochs} \
+        --cepochs {epochs} \
         --erpoolsize 20000 "\"2>\"" "log-bootstrapped-$ENV-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
         ::: er 256 \
         ::: loops 1 16 \
@@ -126,7 +128,8 @@ then
         --loops {loops} \
         --actor-count {ac} \
         --q-loops {qloops} \
-        --epochs {epochs} \
+        --aepochs {epochs} \
+        --cepochs {epochs} \
         --erpoolsize 20000 "\"2>\"" "log-parallel-noise-$ENV-{variant}-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
         ::: er 256 \
         ::: loops 16 \
@@ -154,7 +157,8 @@ then
         --loops {loops} \
         --actor-count {ac} \
         --q-loops {qloops} \
-        --epochs {epochs} \
+        --aepochs {epochs} \
+        --cepochs {epochs} \
         --erpoolsize 20000 "\"2>\"" "log-bootstrapped-noise-$ENV-{ac}critics-er{er}-epochs{epochs}x{loops}-qloops{qloops}-{run}" ">>" commands_$ENV.sh \
         ::: er 256 \
         ::: loops 1 \
