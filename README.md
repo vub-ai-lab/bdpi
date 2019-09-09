@@ -56,6 +56,6 @@ The files are organized as follows:
 Reproducing our results require a computer with the following components:
 
 * A recent Linux distribution
-* Python 3, with `gym`, `lzo` and PyTorch
+* Python 3, with `gym`, `lzo`, `psutil` and PyTorch
 * GNU Parallel
 * Gnuplot

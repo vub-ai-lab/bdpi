@@ -33,7 +33,6 @@ import gym_envs
 import gym_envs.contwrapper
 
 from bdpi import BDPI
-import atariwrap
 
 # Import additional environments if available
 try:
